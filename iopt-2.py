@@ -70,7 +70,7 @@ class DoTele(threading.Thread):
             click.echo('Mount response: '+r+'\r') 
             return r
 
-        click.echo('Telescope Command Three Started...'+'\r')
+        click.echo('Telescope Command Thread Started...'+'\r')
 
         # Open TCP Socek
         teleScope = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # TCP
@@ -135,15 +135,18 @@ class KeyClick(threading.Thread):
         super(KeyClick,self).__init__(*args, **kwargs)
 
     def run(self):
-        c = click.getchar()
-        click.echo()
-        if c == 'Q' or c == 'q':
+        click.echo('Keyboard Monitoring Thread Started...'+'\r')
+        try:
+            c = click.getchar()
+            click.echo()
+            if c == 'Q' or c == 'q':
+                click.echo('Quitting...'+'\r')
+                os._exit(1)
+        except:
             click.echo('Quitting...'+'\r')
-            os._exit(1)
+            os.__init__exit(1)
 
 ## Mainline below...
-
-#mysharedObj = AltAz()
 click.clear()
 
 threads = [ DoMacD(shared=AltAz, name='a'), 
