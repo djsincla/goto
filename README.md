@@ -20,5 +20,5 @@ Improved code based on three threads running simutanionsly.
 
 ## iopt-test
 
-Generates udp datastream to test various positions. Assisted me with debugging various azimuth transitions such as 359->001.
+Generates udp datastream to test various positions. Assisted me with debugging azimuth transitions such as 359->001.
 
