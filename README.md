@@ -9,14 +9,14 @@ Antennas are mounted to the iOptron telescope mount for amateur radio satellite 
 
 ## iopt-base.py
 
-My initial attempt. Single threaded which would action a command to the telescope when udp data was received from MacDoppler which just happens to be every seconds.
+My initial attempt. Single threaded which would action a command to the telescope when udp data was received from MacDoppler which just happens to be every second. Any pause I would make for the telescope mount would ignore udp data.
 
 ## iopt-2.py
 
 Improved code based on three threads running simutanionsly. 
 - First thread is the udp listener which updates an object when data is received.
-- Second thread loops checking every 0.2 seconds for any change in object data nd if so, formats and sends telescope mount commands. 
-- Third thread waits on keyboard input and ends on q/Q
+- Second thread loops checking every 0.2 seconds for any change in object data and if so, formats and sends telescope mount commands. 
+- Third thread waits on keyboard input and ends on q/Q or exception such as ctrl-c.
 
 ## iopt-test
 
