@@ -23,11 +23,11 @@ def Decdeg2arc(deg):
 def ParseDopData(macDopData):
 	# print("received message: %s"%data)
 	# 00002008 Tauranga [AzEl Rotor Report:Azimuth:90.00, Elevation:20.00, SatName:AO-92]
-	aziParsed = data.split(",")[0]
+	aziParsed = macDopData.split(",")[0]
 	aziParsed = aziParsed.split(":")[2]
-	eleParsed = data.split(",")[1]
+	eleParsed = macDopData.split(",")[1]
 	eleParsed = eleParsed.split(":")[1]
-	satNameParsed = data.split(",")[2]
+	satNameParsed = macDopData.split(",")[2]
 	satNameParsed = satNameParsed.split(']')[0]
 	satNameParsed = satNameParsed.split(':')[1]
 	return aziParsed, eleParsed, satNameParsed
@@ -101,20 +101,34 @@ while True:
 	resp = TelCommand("Slew", slewMsg)
 
 	resp = TelCommand("Current Position", posMsg)
-	testEl = resp[1:9]
-	testAz = resp[9:18]
-	if abs(int(testEl) - int(elevationDms)) > 5000000 or abs(int(testAz) - int(azimuthDms)) > 5000000:
-		print("Difference in El: "+str(abs(int(testEl) - int(elevationDms))))
-		print("Difference in Az: "+str(abs(int(testAz) - int(azimuthDms))))
-		secsEl = abs(int(testEl) - int(elevationDms)) / 7500000
-		secsAz = abs(int(testAz) - int(elevationDms)) / 10000000
-		secsEl = int(secsEl)
-		secsAz = int(secsAz)
-		sleepSecs = [5, secsEl, secsAz]
-		print("Pausing "+str(max(sleepSecs))+" seconds to Slew....")
-#		if abs(int(testEl) - int(elevationDms))
-		time.sleep(int(max(sleepSecs)))
-		print("Now continuing.")
+	if resp != '' :
+		testEl = resp[1:9]
+		testAz = resp[9:18]
+		print("Test Az 1: "+str(testAz))
+		print("Test El 1: "+str(testEl))
+		absTestEl = abs(int(testEl) - int(elevationDms))
+		absTestAz = abs(int(testAz) - int(azimuthDms))
+		print("Test Az 2: "+str(absTestAz))
+		print("Test El 2: "+str(absTestEl))
+		if absTestAz > (180*3600*100):
+			absTestAz = (360*3600*100) - absTestAz 
+		if absTestAz > 5000000 or absTestEl > 5000000:
+			print("Difference in El: "+str(absTestEl))
+			print("Difference in Az: "+str(absTestAz))
+			secsEl = absTestEl  / 7500000
+			secsAz = absTestAz  / 10000000
+			secsEl = int(secsEl)
+			secsAz = int(secsAz)
+			sleepSecs = [4, secsEl, secsAz]
+			print("Pausing "+str(max(sleepSecs))+" seconds to Slew....")
+#			if abs(int(testEl) - int(elevationDms))
+			time.sleep(int(max(sleepSecs)))
+			print("Now continuing.")
+	else:
+		print("No position report returned.")
+
+
+
 
 
 
