@@ -1,5 +1,8 @@
 import threading, time, socket, click, os
 
+# 2 -> 24 Rewritten to work with altitude and azimuth in degrees. Conversion to telescope will happen at command executioon time.
+# This will make future work 
+
 TELESCOPE_IP ="10.10.100.254"
 TELESCOPE_SOC = 8899
 MACDOPPLER_IP ="127.0.0.1"
@@ -7,8 +10,8 @@ MACDOPPLER_SOC = 9932
 TELESCOPE_INT = 0.4
 
 class AltAz(object):
-    altitude = "00000000"
-    azimuth = "000000000"
+    altitude = 30.00
+    azimuth = 240.00
     satName = "None"
 
 class DoMacD(threading.Thread):
@@ -30,15 +33,6 @@ class DoMacD(threading.Thread):
             satNameParsed = satNameParsed.split(':')[1]
             return aziParsed, altParsed, satNameParsed
 
-        def Decdeg2arc(deg):
-            is_positive = deg >= 0
-            deg = abs(deg)
-            minutes,seconds = divmod(deg*3600,60)
-            degrees,minutes = divmod(minutes,60)
-            degrees = degrees if is_positive else -eeedegrees 
-            deg = ( (degrees * 60* 60) + (minutes * 60) + (seconds) ) * 100
-            return (int(deg))
-
         click.echo('MacDopper Monitor Thread Started...'+'\r')
 
         # Open UDP Socket to receive MacDoppler 
@@ -55,10 +49,9 @@ class DoMacD(threading.Thread):
             azimuth, altitude, satName = ParseDopData(str(data))
             click.echo('Parsed Data for Az: ' + str(azimuth) + ' Alt: ' + str(altitude) + ' Name: '+ satName+'\r')
 
-            self.shared.azimuth = format(int(Decdeg2arc(float(azimuth))), '09')
-            self.shared.altitude = format(int(Decdeg2arc(float(altitude))), '08')
+            self.shared.azimuth = azimuth
+            self.shared.altitude = altitude
             self.shared.satName = satName
-            click.echo('Computed Data for Az: ' + str(self.shared.azimuth) + ' Alt: ' + str(self.shared.altitude) + ' Name: ' + self.shared.satName+'\r')
 
 class DoTele(threading.Thread):
     def __init__(self, shared, *args, **kwargs):
@@ -67,33 +60,55 @@ class DoTele(threading.Thread):
 
     def run(self):
 
+        def DecDeg2arc(deg):
+            is_positive = deg >= 0
+            deg = abs(deg)
+            minutes,seconds = divmod(deg*3600,60)
+            degrees,minutes = divmod(minutes,60)
+            degrees = degrees if is_positive else -eeedegrees 
+            arc = int(( (degrees * 60* 60) + (minutes * 60) + (seconds) ) * 100)
+            return arc
+
+        def Arc2DecDeg(arc):
+            arc = abs(int(arc))
+            degrees, seconds = divmod(arc, (3600*100))
+            subSecs1, remain = divmod(seconds, (360*100))
+            subSecs2, remain = divmod(remain, (360*10))
+            deg = float(str(str(degrees)+'.'+str(subSecs1)+str(subSecs2)))
+            return deg
+
         def TelCommand(cmdD, cmd):
+            click.echo('Mount command:  '+cmdD+' '+cmd+'\r')
             teleScope.send(cmd.encode())
-            r = teleScope.recv(1024)
-            click.echo('Mount command:  '+cmdD+' '+cmd+'\r') 
-            click.echo('Mount response: '+r+'\r') 
+            try:
+                r = teleScope.recv(1024)            
+                click.echo('Mount response: '+r+'\r') 
+            except:
+                click.echo('Timeout waiting for response'+'\r')
+                r = 'Timeout'
             return r
 
         click.echo('Telescope Command Thread Started...'+'\r')
 
         # Open TCP Socek
         teleScope = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # TCP
+        #teleScope = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP) # UDP
         teleScope.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
         teleScope.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         teleScope.connect((TELESCOPE_IP, TELESCOPE_SOC))
+        teleScope.settimeout(20)
 
         slewMsg = ":MS#"
         posMsg = ":GAC#"
-        mountInfo = ":MountIfo#"
+        mountInfo = ":MountInfo#"
         stopTra = ":ST0#"
 
         resp = TelCommand("Mount Info", mountInfo)
         resp = TelCommand("Stop Tracking", stopTra)
-
         resp = TelCommand("Current Position", posMsg)
-        self.shared.altitude = resp[1:9]
-        self.shared.azimuth = resp[9:18]
-
+        self.shared.altitude = Arc2DecDeg(resp[1:9])
+        self.shared.azimuth = Arc2DecDeg(resp[9:18])
+        click.echo("Current Position: Al "+str(self.shared.altitude)+ ' Az '+str(self.shared.azimuth)+'\r')
         lastAltitude = self.shared.altitude
         lastAzimuth =  self.shared.azimuth
 
@@ -104,33 +119,36 @@ class DoTele(threading.Thread):
 
             if self.shared.altitude != lastAltitude or self.shared.azimuth != lastAzimuth:
 
-                elMsg = ":Sa+" + self.shared.altitude + "#" 
-                azMsg = ":Sz" + self.shared.azimuth + "#"
-                resp = TelCommand("Set Azimuth", azMsg)
-                resp = TelCommand("Set Elevation", elMsg)
-                resp = TelCommand("Slew", slewMsg)
-                lastAltitude = self.shared.altitude
-                lastAzimuth =  self.shared.azimuth
 
                 resp = TelCommand("Current Position", posMsg)
-                testEl = resp[1:9]
-                testAz = resp[9:18]
 
-                absTestEl = abs(int(testEl) - int(self.shared.altitude))
-                absTestAz = abs(int(testAz) - int(self.shared.azimuth))
+                if len(resp) == 19:
 
-                if absTestAz > (180*3600*100):
-                    absTestAz = (360*3600*100) - absTestAz 
-                if absTestAz > 5000000 or absTestEl > 5000000:
-                    click.echo('Difference in El: '+str(absTestEl)+' Difference in Az: '+str(absTestAz)+'\r')
-                    secsEl = absTestEl  / 7500000
-                    secsAz = absTestAz  / 6000000
-                    secsEl = int(secsEl)
-                    secsAz = int(secsAz)
-                    sleepSecs = [4, secsEl, secsAz]
-                    click.echo('Pausing '+str(max(sleepSecs))+' seconds to Slew....'+'\r')
-                    time.sleep(int(max(sleepSecs)))
-                    click.echo('Now continuing.'+'\r')
+                    testAl = Arc2DecDeg(resp[1:9])
+                    testAz = Arc2DecDeg(resp[9:18])
+                    click.echo('Current Position: Az '+str(testAz)+' Al '+str(testAl)+'\r')
+                    click.echo('Desired Position: Az '+self.shared.azimuth+' Al '+self.shared.altitude+'\r')
+                    absTestAl = abs((90.0 - float(testAl)) - (90.0 - float(self.shared.altitude)))
+                    absTestAz = abs((360.0 - float(testAz)) - (360.0 - float(self.shared.azimuth)))
+
+                    elMsg = ":Sa+" + format(int(DecDeg2arc(float(self.shared.altitude))), '08') + "#" 
+                    azMsg = ":Sz" + format(int(DecDeg2arc(float(self.shared.azimuth))), '09') + "#"
+                    resp = TelCommand("Set Azimuth", azMsg)
+                    resp = TelCommand("Set Elevation", elMsg)
+                    resp = TelCommand("Slew", slewMsg)
+                    lastAltitude = self.shared.altitude
+                    lastAzimuth =  self.shared.azimuth
+
+                    if absTestAz > 30.0 or absTestAl > 30.0:
+                        click.echo('Difference in Az '+str(absTestAz)+' Difference in Al: '+str(absTestAl)+'\r')
+                        secsAl = absTestAl  / 12.0
+                        secsAz = absTestAz  / 12.0
+                        secsAl = int(secsAl)
+                        secsAz = int(secsAz)
+                        sleepSecs = [4, secsAl, secsAz]
+                        click.echo('Pausing '+str(max(sleepSecs))+' seconds to Slew....'+'\r')
+                        time.sleep(int(max(sleepSecs)))
+                        click.echo('Now continuing.'+'\r')
 
             time.sleep(TELESCOPE_INT)
 
@@ -153,6 +171,8 @@ class KeyClick(threading.Thread):
 
 def main():
     ## Mainline below...
+
+    # Clear the screen.
     click.clear()
 
     threads = [ DoMacD(shared=AltAz, name='a'), 
