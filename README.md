@@ -17,6 +17,7 @@ Improved code based on three threads running simutanionsly.
 - First thread is the udp listener which updates an object when data is received.
 - Second thread loops checking every 0.2 seconds for any change in object data and if so, formats and sends telescope mount commands. 
 - Third thread waits on keyboard input and ends on q/Q or exception such as ctrl-c.
+- Updated to work and save Altitude (elevation) and Azimuth in degrees with the conversion to telescope commands at the time of command.
 
 ## iopt-test
 
