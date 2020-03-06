@@ -119,9 +119,7 @@ class DoTele(threading.Thread):
 
             if self.shared.altitude != lastAltitude or self.shared.azimuth != lastAzimuth:
 
-
                 resp = TelCommand("Current Position", posMsg)
-
                 if len(resp) == 19:
 
                     testAl = Arc2DecDeg(resp[1:9])
@@ -146,9 +144,9 @@ class DoTele(threading.Thread):
                         secsAl = int(secsAl)
                         secsAz = int(secsAz)
                         sleepSecs = [4, secsAl, secsAz]
-                        click.echo('Pausing '+str(max(sleepSecs))+' seconds to Slew....'+'\r')
+                        click.echo('Pausing '+str(max(sleepSecs))+' seconds to Slew...'+'\r')
                         time.sleep(int(max(sleepSecs)))
-                        click.echo('Now continuing.'+'\r')
+                        click.echo('Now continuing...'+'\r')
 
             time.sleep(TELESCOPE_INT)
 
