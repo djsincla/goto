@@ -1,7 +1,37 @@
 import threading, time, socket, click, os
 
-# 2 -> 24 Rewritten to work with altitude and azimuth in degrees. Conversion to telescope will happen at command executioon time.
-# This will make future work 
+# February 2020
+# Dwayne Sinclair NA6US
+
+# Python script to drive a goto telecope via slew commands. 
+# This script is optimized to work with a ioptron AZ Mount Pro AltAz mount via TCP/IP.
+
+# Three threads in this program run insdependent of each other.
+#   DoMacD Thread monitors UDP stream from MacDoppler and updates shared objects with elevation (altitude) and aximuth.
+#   Frequency from MacDoppler is 1 second but it could be any frequency.
+#
+#   DoTele thread monitors changes to azimuth and altitude in the shared object will command the telescope mount to slew to the new
+#   if a change is found.
+#
+#   KeyClick thread is monitoring for Q/q command and Control-C
+
+# FYI's
+# - The AZ Mount Pro appears not to pass through 360 degrees. Best to set it up pointing south so mount should not
+#   stretch cables more than 180 degrees in either direction.
+# - The TCP/IP implementation is based on the RS232 implementation and needs to be "blocking" given if commands are send async, the 1's and 0's 
+#   command responses have to be associated with the commands than sent them.
+# - There is provision for long slews where the program will wait for a period of the for the slew to complete. This is because sending
+#   a slew command when the mount is already slewing will cause the mount to stop and restart.
+
+# Bugs
+# - There appears to be a 5 second lag responding to commands now and then on TCP/IP. This does not affect operation and I have opened a support 
+#   ticket with iOptron.
+# - I need to add logic to close and reopen the TCP/IP session to the mount after inactivity of say 10 minutes. Long pauses between satellites
+#   and the session is dead requiring a program restart.
+
+# Latest changes:
+# 3/5/20 DJS - Updated to save altitude and azimuth in degrees. Arcunit conversion will occur when sending command to telescope mount.
+#              This will make swapping commands for a different scope easier. 
 
 TELESCOPE_IP ="10.10.100.254"
 TELESCOPE_SOC = 8899
@@ -15,6 +45,7 @@ class AltAz(object):
     satName = "None"
 
 class DoMacD(threading.Thread):
+
     def __init__(self, shared, *args, **kwargs):
         super(DoMacD,self).__init__(*args, **kwargs)
         self.shared = shared
@@ -45,15 +76,16 @@ class DoMacD(threading.Thread):
             data, addr = macD.recvfrom(1024)
 
             click.clear()
-            click.echo('Data received: '+str(data)+'\r')
+            click.echo(str(data)+'\r')
             azimuth, altitude, satName = ParseDopData(str(data))
-            click.echo('Parsed Data for Az: ' + str(azimuth) + ' Alt: ' + str(altitude) + ' Name: '+ satName+'\r')
+            click.echo('Parsed Data - Azi: ' + str(azimuth) + ' Alt: ' + str(altitude) + ' Name: '+ satName+'\r')
 
             self.shared.azimuth = azimuth
             self.shared.altitude = altitude
             self.shared.satName = satName
 
 class DoTele(threading.Thread):
+
     def __init__(self, shared, *args, **kwargs):
         super(DoTele,self).__init__(*args, **kwargs)
         self.shared = shared
@@ -106,26 +138,28 @@ class DoTele(threading.Thread):
         resp = TelCommand("Mount Info", mountInfo)
         resp = TelCommand("Stop Tracking", stopTra)
         resp = TelCommand("Current Position", posMsg)
-        self.shared.altitude = Arc2DecDeg(resp[1:9])
-        self.shared.azimuth = Arc2DecDeg(resp[9:18])
-        click.echo("Current Position: Al "+str(self.shared.altitude)+ ' Az '+str(self.shared.azimuth)+'\r')
+        # Its possible we receive a positive reponse to a previous command concatinated with the 
+        # position report. We parse from the end of the string.
+        lenP = len(resp)
+        self.shared.altitude = Arc2DecDeg(resp[lenP-18:lenP-10])
+        self.shared.azimuth = Arc2DecDeg(resp[lenP-10:lenP-1])
+        click.echo("Current Position: Azi: "+str(self.shared.azimuth)+ ' Alt: '+str(self.shared.altitude)+'\r')
         lastAltitude = self.shared.altitude
         lastAzimuth =  self.shared.azimuth
-
-        #:Sas32400000# Elevation
-        #:Sz064800000# Azimuth
 
         while True:
 
             if self.shared.altitude != lastAltitude or self.shared.azimuth != lastAzimuth:
 
                 resp = TelCommand("Current Position", posMsg)
-                if len(resp) == 19:
-
-                    testAl = Arc2DecDeg(resp[1:9])
-                    testAz = Arc2DecDeg(resp[9:18])
-                    click.echo('Current Position: Az '+str(testAz)+' Al '+str(testAl)+'\r')
-                    click.echo('Desired Position: Az '+self.shared.azimuth+' Al '+self.shared.altitude+'\r')
+                if len(resp) >= 19:
+                    # Its possible we receive a positive reponse to a previous command concatinated with the 
+                    # position report. We parse from the end of the string.
+                    lenP = len(resp)
+                    testAl = Arc2DecDeg(resp[lenP-18:lenP-10])
+                    testAz = Arc2DecDeg(resp[lenP-10:lenP-1])
+                    click.echo('Current Position: Azi: '+str(testAz)+' Alt: '+str(testAl)+'\r')
+                    click.echo('Desired Position: Azi: '+self.shared.azimuth+' Alt: '+self.shared.altitude+'\r')
                     absTestAl = abs((90.0 - float(testAl)) - (90.0 - float(self.shared.altitude)))
                     absTestAz = abs((360.0 - float(testAz)) - (360.0 - float(self.shared.azimuth)))
 
@@ -137,12 +171,16 @@ class DoTele(threading.Thread):
                     lastAltitude = self.shared.altitude
                     lastAzimuth =  self.shared.azimuth
 
-                    if absTestAz > 30.0 or absTestAl > 30.0:
-                        click.echo('Difference in Az '+str(absTestAz)+' Difference in Al: '+str(absTestAl)+'\r')
-                        secsAl = absTestAl  / 12.0
-                        secsAz = absTestAz  / 12.0
+                    # Checking to see if its a big slew and if so, we wait for some seconds for the slew to complete
+                    if absTestAz > 20.0 or absTestAl > 20.0:
+                        click.echo('Difference in Azi: '+str(absTestAz)+' Difference in Alt: '+str(absTestAl)+'\r')
+                        # These divisions should generate a good time to wait.
+                        secsAl = absTestAl  / 11.0
+                        secsAz = absTestAz  / 11.0
                         secsAl = int(secsAl)
                         secsAz = int(secsAz)
+                        # three possible values to sleep including the default of 4 seconds.
+                        # We will sleep the highest value.
                         sleepSecs = [4, secsAl, secsAz]
                         click.echo('Pausing '+str(max(sleepSecs))+' seconds to Slew...'+'\r')
                         time.sleep(int(max(sleepSecs)))
@@ -151,6 +189,7 @@ class DoTele(threading.Thread):
             time.sleep(TELESCOPE_INT)
 
 class KeyClick(threading.Thread):
+
     def __init__(self, *args, **kwargs):
         super(KeyClick,self).__init__(*args, **kwargs)
 
