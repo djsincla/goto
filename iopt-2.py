@@ -19,7 +19,7 @@ import threading, time, socket, click, os
 # - The AZ Mount Pro appears not to pass through 360 degrees. Best to set it up pointing south so mount should not
 #   stretch cables more than 180 degrees in either direction.
 # - The TCP/IP implementation is based on the RS232 implementation and needs to be "blocking" given if commands are send async, the 1's and 0's 
-#   command responses have to be associated with the commands than sent them.
+#   you will lose association between the commands and the command responses.
 # - There is provision for long slews where the program will wait for a period of the for the slew to complete. This is because sending
 #   a slew command when the mount is already slewing will cause the mount to stop and restart.
 
