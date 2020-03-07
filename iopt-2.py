@@ -1,4 +1,5 @@
 import threading, time, socket, click, os
+from socket import SHUT_RDWR
 
 # February 2020
 # Dwayne Sinclair NA6US
@@ -19,7 +20,7 @@ import threading, time, socket, click, os
 # - The AZ Mount Pro appears not to pass through 360 degrees. Best to set it up pointing south so mount should not
 #   stretch cables more than 180 degrees in either direction.
 # - The TCP/IP implementation is based on the RS232 implementation and needs to be "blocking" given if commands are send async, the 1's and 0's 
-#   you will lose association between the commands and the command responses.
+#   command responses have to be associated with the commands than sent them.
 # - There is provision for long slews where the program will wait for a period of the for the slew to complete. This is because sending
 #   a slew command when the mount is already slewing will cause the mount to stop and restart.
 
@@ -92,6 +93,41 @@ class DoTele(threading.Thread):
 
     def run(self):
 
+        def MountOpen():
+            mountOpenObj = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # TCP
+            #teleScope = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP) # UDP
+            mountOpenObj.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+            mountOpenObj.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            mountOpenObj.settimeout(20)
+            try:
+                click.echo('Opening Telescope Mount TCP Session.'+'\r')
+                mountOpenObj.connect((TELESCOPE_IP, TELESCOPE_SOC))
+            except Exception:
+                click.echo('Error Opening Telescope Mount. Quitting.'+'\r')
+                os._exit(1)
+            return mountOpenObj
+
+        def MountClose(mountCloseObj):
+            try:
+                click.echo('Closing Telescope Mount TCP Session.'+'\r')
+                mountCloseObj.shutdown(SHUT_RDWR)
+                mountCloseObj.close()
+            except Exception:
+                click.echo('Error Closing Telescope Mount. Quitting.'+'\r')
+                os._exit(1)
+            return
+
+        def MountCommand(cmdD, cmd, TelCommandObj):
+            click.echo('Mount command:  '+cmdD+' '+cmd+'\r')
+            TelCommandObj.send(cmd.encode())
+            try:
+                r = TelCommandObj.recv(1024)            
+                click.echo('Mount response: '+r+'\r') 
+            except:
+                click.echo('Timeout waiting for response'+'\r')
+                r = 'Timeout'
+            return r
+
         def DecDeg2arc(deg):
             is_positive = deg >= 0
             deg = abs(deg)
@@ -109,35 +145,19 @@ class DoTele(threading.Thread):
             deg = float(str(str(degrees)+'.'+str(subSecs1)+str(subSecs2)))
             return deg
 
-        def TelCommand(cmdD, cmd):
-            click.echo('Mount command:  '+cmdD+' '+cmd+'\r')
-            teleScope.send(cmd.encode())
-            try:
-                r = teleScope.recv(1024)            
-                click.echo('Mount response: '+r+'\r') 
-            except:
-                click.echo('Timeout waiting for response'+'\r')
-                r = 'Timeout'
-            return r
 
         click.echo('Telescope Command Thread Started...'+'\r')
-
-        # Open TCP Socek
-        teleScope = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # TCP
-        #teleScope = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP) # UDP
-        teleScope.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-        teleScope.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        teleScope.connect((TELESCOPE_IP, TELESCOPE_SOC))
-        teleScope.settimeout(20)
 
         slewMsg = ":MS#"
         posMsg = ":GAC#"
         mountInfo = ":MountInfo#"
         stopTra = ":ST0#"
 
-        resp = TelCommand("Mount Info", mountInfo)
-        resp = TelCommand("Stop Tracking", stopTra)
-        resp = TelCommand("Current Position", posMsg)
+        teleScope = MountOpen()
+
+        resp = MountCommand("Mount Info", mountInfo, teleScope)
+        resp = MountCommand("Stop Tracking", stopTra, teleScope)
+        resp = MountCommand("Current Position", posMsg, teleScope)
         # Its possible we receive a positive reponse to a previous command concatinated with the 
         # position report. We parse from the end of the string.
         lenP = len(resp)
@@ -147,11 +167,24 @@ class DoTele(threading.Thread):
         lastAltitude = self.shared.altitude
         lastAzimuth =  self.shared.azimuth
 
+        mountConnect = True
+        idleTime = 0.0
+        numLoops = 0
+        maxLoops = 25
+
         while True:
 
             if self.shared.altitude != lastAltitude or self.shared.azimuth != lastAzimuth:
 
-                resp = TelCommand("Current Position", posMsg)
+                idleTime = 0.0
+                numLoops = numLoops + 1
+
+                # If Telescope Mount TCP Session is not open, we open it.
+                if mountConnect != True:
+                    teleScope = MountOpen()
+                    mountConnect = True
+
+                resp = MountCommand("Current Position", posMsg, teleScope)
                 if len(resp) >= 19:
                     # Its possible we receive a positive reponse to a previous command concatinated with the 
                     # position report. We parse from the end of the string.
@@ -165,9 +198,9 @@ class DoTele(threading.Thread):
 
                     elMsg = ":Sa+" + format(int(DecDeg2arc(float(self.shared.altitude))), '08') + "#" 
                     azMsg = ":Sz" + format(int(DecDeg2arc(float(self.shared.azimuth))), '09') + "#"
-                    resp = TelCommand("Set Azimuth", azMsg)
-                    resp = TelCommand("Set Elevation", elMsg)
-                    resp = TelCommand("Slew", slewMsg)
+                    resp = MountCommand("Set Azimuth", azMsg, teleScope)
+                    resp = MountCommand("Set Elevation", elMsg, teleScope)
+                    resp = MountCommand("Slew", slewMsg, teleScope)
                     lastAltitude = self.shared.altitude
                     lastAzimuth =  self.shared.azimuth
 
@@ -187,6 +220,13 @@ class DoTele(threading.Thread):
                         click.echo('Now continuing...'+'\r')
 
             time.sleep(TELESCOPE_INT)
+            idleTime = idleTime + TELESCOPE_INT
+            # No need to maintain the Telescope Mount TCP Session. Close it after 10 seconds on inactivity.
+            if ( idleTime > 10.0 or numLoops > maxLoops ) and mountConnect != False:
+                MountClose(teleScope)
+                mountConnect = False
+                numLoops = 0
+
 
 class KeyClick(threading.Thread):
 
