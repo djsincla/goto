@@ -18,8 +18,8 @@ Improved code based on three threads running simutanionsly.
 - Second thread loops checking every 0.4 seconds for any change in object data and if so, formats and sends telescope mount commands. 
 - Third thread waits on keyboard input and ends on q/Q or exception such as ctrl-c.
 - Updated to work and save Altitude (elevation) and Azimuth in degrees with the conversion to telescope arcseconds commands at the time of command.
-- Updated to close Telescope Mount TCP session after 10 seconds on inactivity. It will be reopened at next activity.
-- There is a wierd 5 second hang in responses from the Telescope Mount. I added a "bypass" where I close and reopen the telescope Mount TCO session after 25 command loops.
+- Updated to close Telescope Mount TCP session after 30 seconds of inactivity. It will be reopened at next activity.
+- There is a wierd 5 second hang in responses from the Telescope Mount. I added a "bypass" where I close and reopen the telescope Mount TCO session after so many command loops.
 
 ## iopt-test
 
