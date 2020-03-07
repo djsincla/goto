@@ -22,23 +22,26 @@ from socket import SHUT_RDWR
 # - The TCP/IP implementation is based on the RS232 implementation and needs to be "blocking" given if commands are send async, the 1's and 0's 
 #   command responses have to be associated with the commands than sent them.
 # - There is provision for long slews where the program will wait for a period of the for the slew to complete. This is because sending
-#   a slew command when the mount is already slewing will cause the mount to stop and restart.
+#   a slew command when the mount is already slewing will cause the mount to stop and restart slewing.
 
 # Bugs
 # - There appears to be a 5 second lag responding to commands now and then on TCP/IP. This does not affect operation and I have opened a support 
-#   ticket with iOptron.
-# - I need to add logic to close and reopen the TCP/IP session to the mount after inactivity of say 10 minutes. Long pauses between satellites
-#   and the session is dead requiring a program restart.
+#   ticket with iOptron. I added a bypass by closing and reopening the Telecope Mount TCP session after so many command loops. This seems to help.
 
 # Latest changes:
-# 3/5/20 DJS - Updated to save altitude and azimuth in degrees. Arcunit conversion will occur when sending command to telescope mount.
-#              This will make swapping commands for a different scope easier. 
+# 03/05/20 DJS - Updated to save altitude and azimuth in degrees. Arcunit conversion will occur when sending command to telescope mount.
+#                This will make swapping commands for a different scope easier. 
+# 03/06/20 DJS - Updated to close and open the TeleScope Mount TCP session after 30 seconds of inactivity. Related, there is a bug where 
+#                some responses are delayed by 5 seconds. Also added a close and reopen of Telescope TCP session after x command loops.
+#
 
 TELESCOPE_IP ="10.10.100.254"
 TELESCOPE_SOC = 8899
 MACDOPPLER_IP ="127.0.0.1"
 MACDOPPLER_SOC = 9932
 TELESCOPE_INT = 0.4
+MOUNT_INACT = 30.0
+LOOPS_MAX = 30
 
 class AltAz(object):
     altitude = 30.00
@@ -170,7 +173,6 @@ class DoTele(threading.Thread):
         mountConnect = True
         idleTime = 0.0
         numLoops = 0
-        maxLoops = 25
 
         while True:
 
@@ -222,7 +224,7 @@ class DoTele(threading.Thread):
             time.sleep(TELESCOPE_INT)
             idleTime = idleTime + TELESCOPE_INT
             # No need to maintain the Telescope Mount TCP Session. Close it after 10 seconds on inactivity.
-            if ( idleTime > 10.0 or numLoops > maxLoops ) and mountConnect != False:
+            if ( idleTime > MOUNT_INACT or numLoops > LOOPS_MAX ) and mountConnect != False:
                 MountClose(teleScope)
                 mountConnect = False
                 numLoops = 0
