@@ -136,7 +136,7 @@ class DoTele(threading.Thread):
             deg = abs(deg)
             minutes,seconds = divmod(deg*3600,60)
             degrees,minutes = divmod(minutes,60)
-            degrees = degrees if is_positive else -eeedegrees 
+            degrees = degrees if is_positive else -degrees 
             arc = int(( (degrees * 60* 60) + (minutes * 60) + (seconds) ) * 100)
             return arc
 
