@@ -5,6 +5,10 @@ MacDoppler software outputs a udp stream every second with elevation (altitude) 
 
 Antennas are mounted to the iOptron telescope mount for amateur radio satellite communications.
 
+# Dependencies
+- MacDoppler or similar software that outputs a "rotator" UDP stream for a satellite position every second. The UDP stream contains Azimuth and Elevation together with satellite name.
+- A goto telescope mount. I am using the ioptrom mount so telescope commands are formatted for this mount.
+
 # Three Files...
 
 ## iopt-base.py
